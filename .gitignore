@@ -1,0 +1,36 @@
+# Python caches and environments
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local secrets and machine-specific settings
+.env
+.env.*
+!.env.example
+.vscode/settings.json
+
+# Microscopy source files and exported images
+*.lif
+*.lifx
+*.tif
+*.tiff
+*.ome.tif
+*.ome.tiff
+*.png
+*.jpg
+*.jpeg
+*.czi
+*.nd2
+*.lsm
+
+# Pipeline outputs and metadata sidecars (may include instrument identifiers)
+processed/
+tiff_raw/
+png_contrast/
+tiff_display/
+metadata.json

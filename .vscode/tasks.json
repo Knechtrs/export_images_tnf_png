@@ -1,0 +1,53 @@
+{
+  "version": "2.0.0",
+  "inputs": [
+    {
+      "id": "lifInputFolder",
+      "type": "promptString",
+      "description": "Folder containing .lif files",
+      "default": "${workspaceFolder}"
+    },
+    {
+      "id": "lifOutputFolder",
+      "type": "promptString",
+      "description": "Output folder",
+      "default": "${workspaceFolder}/processed"
+    },
+    {
+      "id": "scaleBarLength",
+      "type": "promptString",
+      "description": "Scale bar length in micrometers",
+      "default": "100"
+    }
+  ],
+  "tasks": [
+    {
+      "label": "LIF Batch Export: TIFF + PNG",
+      "type": "process",
+      "command": "${command:python.interpreterPath}",
+      "args": [
+        "${workspaceFolder}/lif_pipeline.py",
+        "--input",
+        "${input:lifInputFolder}",
+        "--output",
+        "${input:lifOutputFolder}"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "LIF Batch Export: TIFF + PNG + Scale Bar",
+      "type": "process",
+      "command": "${command:python.interpreterPath}",
+      "args": [
+        "${workspaceFolder}/lif_pipeline.py",
+        "--input",
+        "${input:lifInputFolder}",
+        "--output",
+        "${input:lifOutputFolder}",
+        "--scale-bar-um",
+        "${input:scaleBarLength}"
+      ],
+      "problemMatcher": []
+    }
+  ]
+}
