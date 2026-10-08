@@ -34,3 +34,5 @@ tiff_raw/
 png_contrast/
 tiff_display/
 metadata.json
+
+example.ps1
