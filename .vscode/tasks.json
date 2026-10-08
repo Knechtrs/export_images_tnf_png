@@ -18,6 +18,12 @@
       "type": "promptString",
       "description": "Scale bar length in micrometers",
       "default": "100"
+    },
+    {
+      "id": "cropSizePx",
+      "type": "promptString",
+      "description": "Center crop size in pixels (N x N)",
+      "default": "512"
     }
   ],
   "tasks": [
@@ -46,6 +52,23 @@
         "${input:lifOutputFolder}",
         "--scale-bar-um",
         "${input:scaleBarLength}"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "LIF Batch Export: TIFF + PNG + Scale Bar + Center Crop",
+      "type": "process",
+      "command": "${command:python.interpreterPath}",
+      "args": [
+        "${workspaceFolder}/lif_pipeline.py",
+        "--input",
+        "${input:lifInputFolder}",
+        "--output",
+        "${input:lifOutputFolder}",
+        "--scale-bar-um",
+        "${input:scaleBarLength}",
+        "--crop-px",
+        "${input:cropSizePx}"
       ],
       "problemMatcher": []
     }

@@ -26,6 +26,7 @@ Useful options:
 
 - `--recursive` searches subfolders for `.lif` files.
 - `--lower-percentile 0.5 --upper-percentile 99.9` controls PNG contrast stretching.
+- `--crop-px 512` also exports a centered 512 x 512 pixel crop; `--crop-um 100` does the same for 100 x 100 um (needs pixel-size metadata). Use only one. Pixels are more robust. Crops reuse the full-image contrast stretch, get the scale bar if `--scale-bar-um` is set, and are clamped to the image size.
 - `--bfconvert "C:\path\to\bfconvert.bat"` selects another Bio-Formats installation.
 
 ## Output
@@ -35,11 +36,14 @@ Each input file gets its own folder under the output directory:
 - `tiff_raw/` contains Bio-Formats TIFF output and remains unmodified.
 - `png_contrast/` contains 8-bit percentile-stretched PNG planes.
 - `tiff_display/` is created only when a scale bar is requested and contains display copies with the unlabeled scale bar baked in. These copies are not quantitative raw data.
+- `png_cropped/` and `tiff_display_cropped/` (the latter only with a scale bar) hold the `*_crop` files when a crop is requested.
 - `metadata.json` records the processing timestamp, contrast settings, scale-bar size, per-series dimensions and calibration, output filenames, and original LIF OME-XML metadata.
 
 Multi-page TIFF series are exported one plane per PNG. Re-running the pipeline overwrites generated files in the output folder.
 
-In VS Code, run **Terminal: Run Task** and choose one of the **LIF Batch Export** tasks. The scale-bar task prompts for a bar length in micrometers.
+In VS Code, run **Terminal: Run Task** and choose one of the **LIF Batch Export** tasks. The scale-bar task prompts for a bar length in micrometers; the crop task also prompts for a crop size in pixels.
+
+Example: `python lif_pipeline.py --input in --output out --crop-px 512 --scale-bar-um 50`
 
 ## Public Repository Safety
 

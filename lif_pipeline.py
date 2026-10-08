@@ -103,14 +103,12 @@ def parse_ome_pixel_sizes_um(output: str) -> dict[str, float]:
 def read_lif_metadata(
     lif_path: Path, bfconvert: Path
 ) -> tuple[str | None, dict[str, dict[str, object]]]:
-    showinf = bfconvert.with_name("showinf.bat")
+    showinf = bfconvert.with_name("showinf" + bfconvert.suffix)
     if not showinf.is_file():
-        logging.warning("showinf.bat not found; source metadata unavailable for %s", lif_path.name)
+        logging.warning("%s not found; source metadata unavailable for %s", showinf.name, lif_path.name)
         return None, {}
-    command = f'call "{showinf}" -nopix -omexml-only "{lif_path}"'
     result = subprocess.run(
-        command,
-        shell=True,
+        [str(showinf), "-nopix", "-omexml-only", str(lif_path)],
         check=True,
         capture_output=True,
         text=True,
@@ -164,11 +162,18 @@ def add_scale_bar(image: Image.Image, pixel_size_um: float, length_um: float) ->
     return result
 
 
+def center_crop(image: Image.Image, width_px: int, height_px: int) -> Image.Image:
+    width, height = image.size
+    crop_w, crop_h = min(width_px, width), min(height_px, height)
+    left = (width - crop_w) // 2
+    top = (height - crop_h) // 2
+    return image.crop((left, top, left + crop_w, top + crop_h))
+
+
 def convert_lif(lif_path: Path, raw_dir: Path, bfconvert: Path) -> list[Path]:
     raw_dir.mkdir(parents=True, exist_ok=True)
-    output_pattern = raw_dir / "%%n.tif"
-    command = f'call "{bfconvert}" "{lif_path}" "{output_pattern}"'
-    subprocess.run(command, shell=True, check=True)
+    output_pattern = raw_dir / "%n.tif"
+    subprocess.run([str(bfconvert), str(lif_path), str(output_pattern)], check=True)
     return sorted(raw_dir.glob("*.tif"))
 
 
@@ -180,10 +185,22 @@ def process_tiff(
     upper: float,
     scale_bar_um: float | None,
     lif_pixel_size_um: float | None = None,
+    crop_dir: Path | None = None,
+    crop_tiff_dir: Path | None = None,
+    crop_px: int | None = None,
+    crop_um: float | None = None,
+    crop_scale_bar_um: float | None = None,
 ) -> tuple[int, float | None]:
     png_dir.mkdir(parents=True, exist_ok=True)
     if scale_bar_um is not None:
         display_tiff_dir.mkdir(parents=True, exist_ok=True)
+    do_crop = crop_dir is not None and (crop_px is not None or crop_um is not None)
+    if crop_scale_bar_um is None:
+        crop_scale_bar_um = scale_bar_um
+    if do_crop:
+        crop_dir.mkdir(parents=True, exist_ok=True)
+        if crop_scale_bar_um is not None:
+            crop_tiff_dir.mkdir(parents=True, exist_ok=True)
 
     written = 0
     with tifffile.TiffFile(tiff_path) as tif:
@@ -194,8 +211,26 @@ def process_tiff(
         if scale_bar_um is not None and pixel_size_um is None:
             logging.warning("No physical pixel size in OME metadata; scale bar omitted for %s", tiff_path)
 
+        crop_size = crop_px
+        if do_crop and crop_size is None:
+            if pixel_size_um is None:
+                logging.warning("No physical pixel size; --crop-um skipped for %s", tiff_path)
+                do_crop = False
+            else:
+                crop_size = round(crop_um / pixel_size_um)
+
         for index, page in enumerate(pages, start=1):
             image = contrast_image(page.asarray(), lower, upper)
+            if do_crop:
+                # Contrast is computed on the full plane so crops match the uncropped PNGs.
+                cropped = center_crop(image, crop_size, crop_size)
+                if crop_scale_bar_um is not None and pixel_size_um is not None:
+                    cropped = add_scale_bar(cropped, pixel_size_um, crop_scale_bar_um)
+                plane = f"_plane_{index:04d}" if len(pages) > 1 else ""
+                crop_stem = f"{tiff_path.stem}{plane}_crop"
+                cropped.save(crop_dir / f"{crop_stem}.png")
+                if crop_scale_bar_um is not None and pixel_size_um is not None:
+                    cropped.save(crop_tiff_dir / f"{crop_stem}.tif", format="TIFF")
             if scale_bar_um is not None and pixel_size_um is not None:
                 image = add_scale_bar(image, pixel_size_um, scale_bar_um)
             suffix = f"_plane_{index:04d}" if len(pages) > 1 else ""
@@ -266,6 +301,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--bfconvert", type=Path, default=Path(DEFAULT_BFCONVERT), help="Path to bfconvert.bat")
     parser.add_argument("--recursive", action="store_true", help="Search input folders recursively")
     parser.add_argument("--scale-bar-um", type=float, help="Add a calibrated scale bar of this length in um")
+    parser.add_argument("--crop-scale-bar-um", type=float, help="Scale bar length in um for cropped images (default: --scale-bar-um)")
+    parser.add_argument("--crop-px", type=int, help="Also export a center crop of N x N pixels")
+    parser.add_argument("--crop-um", type=float, help="Also export a center crop of N x N um (needs pixel size metadata)")
     parser.add_argument("--lower-percentile", type=float, default=0.5, help="PNG contrast lower percentile (default: 0.5)")
     parser.add_argument("--upper-percentile", type=float, default=99.9, help="PNG contrast upper percentile (default: 99.9)")
     args = parser.parse_args()
@@ -273,6 +311,12 @@ def parse_args() -> argparse.Namespace:
         parser.error("Percentiles must satisfy 0 <= lower < upper <= 100")
     if args.scale_bar_um is not None and args.scale_bar_um <= 0:
         parser.error("--scale-bar-um must be greater than zero")
+    if args.crop_scale_bar_um is not None and args.crop_scale_bar_um <= 0:
+        parser.error("--crop-scale-bar-um must be greater than zero")
+    if args.crop_px is not None and args.crop_um is not None:
+        parser.error("Use only one of --crop-px and --crop-um")
+    if (args.crop_px is not None and args.crop_px < 1) or (args.crop_um is not None and args.crop_um <= 0):
+        parser.error("Crop size must be greater than zero")
     return args
 
 
@@ -300,6 +344,8 @@ def main() -> int:
         raw_dir = sample_dir / "tiff_raw"
         png_dir = sample_dir / "png_contrast"
         display_tiff_dir = sample_dir / "tiff_display"
+        crop_dir = sample_dir / "png_cropped"
+        crop_tiff_dir = sample_dir / "tiff_display_cropped"
         logging.info("Processing %s", lif_path)
         try:
             try:
@@ -327,6 +373,11 @@ def main() -> int:
                     args.upper_percentile,
                     args.scale_bar_um,
                     lif_pixel_size,
+                    crop_dir,
+                    crop_tiff_dir,
+                    args.crop_px,
+                    args.crop_um,
+                    args.crop_scale_bar_um,
                 )
                 logging.info("  %s: wrote %d PNG plane(s)", tiff_path.name, count)
                 series_record = dict(source_series)
@@ -356,6 +407,31 @@ def main() -> int:
                         else None,
                     }
                 )
+                crop_size_px = args.crop_px
+                if crop_size_px is None and args.crop_um is not None and pixel_size_um is not None:
+                    crop_size_px = round(args.crop_um / pixel_size_um)
+                if crop_size_px is not None:
+                    crop_bar_um = (
+                        args.crop_scale_bar_um if args.crop_scale_bar_um is not None else args.scale_bar_um
+                    )
+                    drawn = crop_bar_um is not None and pixel_size_um is not None
+                    series_record["crop"] = {
+                        "mode": "center",
+                        "scale_bar_um": crop_bar_um,
+                        "requested_px": args.crop_px,
+                        "requested_um": args.crop_um,
+                        "size_px": crop_size_px,
+                        "png_files": [
+                            f"png_cropped/{name}"
+                            for name in plane_filenames(f"{tiff_path.stem}_crop", count, ".png")
+                        ],
+                        "display_tiff_files": [
+                            f"tiff_display_cropped/{name}"
+                            for name in plane_filenames(f"{tiff_path.stem}_crop", count, ".tif")
+                        ]
+                        if drawn
+                        else [],
+                    }
                 output_series.append(series_record)
             metadata_path = save_metadata_json(
                 sample_dir,
